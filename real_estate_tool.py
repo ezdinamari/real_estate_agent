@@ -6,7 +6,7 @@ from google.adk.tools.mcp_tool.runtime import main, register_function
 
 @register_function(
     name="search_properties",
-    description="Search properties for rent or sale in Dubai using SerpAPI.",
+    description="Search properties for rent or sale in Dubai using Bayut via RapidAPI.",
     parameters={
         "type": "object",
         "properties": {
@@ -20,46 +20,36 @@ from google.adk.tools.mcp_tool.runtime import main, register_function
 def search_properties(args):
     location = args["location"]
     purpose = args["purpose"]
-    budget = args.get("budget", None)
+    budget = args.get("budget")
 
-    query = f"{purpose} apartment in {location} Dubai"
+    url = "https://bayut.p.rapidapi.com/properties/list"
+    headers = {
+        "x-rapidapi-host": "bayut.p.rapidapi.com",
+        "x-rapidapi-key": os.getenv("RAPIDAPI_KEY")
+    }
     params = {
-        "q": query,
-        "api_key": os.getenv("SERP_API_KEY"),
-        "engine": "google_real_estate",
-        "location": "Dubai",
-        "hl": "en"
+        "locationExternalIDs": "5002",                 # e.g. Dubai
+        "purpose": f"for-{purpose}",
+        "maxPrice": int(budget * 1_000_000) if budget else None,
+        "hitsPerPage": "10"
     }
 
-    try:
-        response = requests.get("https://serpapi.com/search", params=params)
-        data = response.json()
-    except Exception as e:
-        return {"content": [f"Error fetching data from SerpAPI: {str(e)}"]}
+    resp = requests.get(url, headers=headers, params=params)
+    data = resp.json()
+    hits = data.get("hits", [])
 
-    listings = data.get("real_estate_results", [])
     properties = []
-
-    for r in listings:
-        price_text = r.get("price", "")
-        try:
-            numeric_price = int("".join(filter(str.isdigit, price_text)))
-        except:
-            numeric_price = None
-
-        if budget and numeric_price and numeric_price > budget:
-            continue
-
+    for r in hits:
         properties.append({
-            "type": "apartment",
+            "type": r.get("category", {}).get("label", "property"),
             "purpose": purpose,
-            "price": price_text,
-            "location": r.get("address", location),
-            "size": r.get("size", "N/A")
+            "price": r.get("price"),
+            "location": r.get("location", [{}])[-1].get("name"),
+            "size": r.get("area")
         })
 
     if not properties:
-        return {"content": ["No matching properties found. Try a different budget or location."]}
+        return {"content": ["No listings found from Bayut."]}
 
     return {"content": [json.dumps(p) for p in properties]}
 
