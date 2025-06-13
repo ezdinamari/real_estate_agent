@@ -1,57 +1,61 @@
 # real_estate_tool.py
-import os
-import json
-import requests
-from google.adk.tools.mcp_tool.runtime import main, register_function
 
-@register_function(
-    name="search_properties",
-    description="Search properties for rent or sale in Dubai using Bayut via RapidAPI.",
-    parameters={
-        "type": "object",
-        "properties": {
-            "location": {"type": "string"},
-            "purpose": {"type": "string", "enum": ["rent", "sale"]},
-            "budget": {"type": "number"}
-        },
-        "required": ["location", "purpose"]
-    }
-)
-def search_properties(args):
-    location = args["location"]
-    purpose = args["purpose"]
-    budget = args.get("budget")
+import os
+import requests
+from google.adk.tools import FunctionTool
+from typing import Optional
+def fetch_properties(location: str, purpose: str, budget: Optional[float] = None):
+    """Search for properties in Dubai given location, purpose ('rent' or 'sale'), and optional budget in AED."""
+    if not location or not purpose:
+        return [{"error": "Missing required parameters: location and purpose"}]
 
     url = "https://bayut.p.rapidapi.com/properties/list"
     headers = {
         "x-rapidapi-host": "bayut.p.rapidapi.com",
         "x-rapidapi-key": os.getenv("RAPIDAPI_KEY")
     }
-    params = {
-        "locationExternalIDs": "5002",                 # e.g. Dubai
-        "purpose": f"for-{purpose}",
-        "maxPrice": int(budget * 1_000_000) if budget else None,
-        "hitsPerPage": "10"
+
+    location_map = {
+        "downtown dubai": "5002",
+        "dubai": "5002"
     }
 
-    resp = requests.get(url, headers=headers, params=params)
-    data = resp.json()
-    hits = data.get("hits", [])
+    location_id = location_map.get(location.lower(), "5002")
 
-    properties = []
-    for r in hits:
-        properties.append({
-            "type": r.get("category", {}).get("label", "property"),
-            "purpose": purpose,
-            "price": r.get("price"),
-            "location": r.get("location", [{}])[-1].get("name"),
-            "size": r.get("area")
-        })
+    params = {
+        "locationExternalIDs": location_id,
+        "purpose": f"for-{purpose}",
+        "hitsPerPage": "10",
+    }
 
-    if not properties:
-        return {"content": ["No listings found from Bayut."]}
+    if budget:
+        try:
+            if isinstance(budget, str):
+                budget_value = float(budget.replace(",", ""))
+            else:
+                budget_value = float(budget)
+            params["maxPrice"] = int(budget_value)
+        except Exception as e:
+            return [{"error": f"Invalid budget value: {budget} → {e}"}]
 
-    return {"content": [json.dumps(p) for p in properties]}
+    try:
+        response = requests.get(url, headers=headers, params=params)
+        data = response.json()
+        listings = data.get("hits", [])
 
-if __name__ == "__main__":
-    main()
+        results = []
+        for item in listings:
+            results.append({
+                "type": item.get("category", [{}])[0].get("name", "property"),
+                "purpose": purpose,
+                "price": item.get("price"),
+                "location": item.get("location", [{}])[-1].get("name", ""),
+                "size": item.get("area")
+            })
+
+        return results if results else [{"message": "No properties found."}]
+    except Exception as e:
+        return [{"error": f"API request failed: {str(e)}"}]
+
+# Expose the function as a tool
+fetch_properties_tool = FunctionTool(fetch_properties)
