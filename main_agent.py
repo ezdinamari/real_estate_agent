@@ -6,7 +6,7 @@ from google.adk.agents.llm_agent import LlmAgent
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
-from real_estate_tool import fetch_properties_tool  # Import the tool
+from real_estate_tool import fetch_properties_tool  # Your custom tool
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -17,13 +17,15 @@ async def get_agent_async():
     agent = LlmAgent(
         model=os.getenv("GEMINI_MODEL", "gemini-2.0-pro"),
         name="real_estate_assistant",
-        instruction="""You are a helpful real estate assistant focused on Dubai properties.
+        instruction="""
+        You are a helpful real estate assistant focused on Dubai properties.
         You have access to a tool called `fetch_properties` that takes:
         - location (string)
         - purpose (string: "rent" or "sale")
         - budget (number, optional)
-        Use this tool to help users search for apartments.""",
-        tools=[fetch_properties_tool],  # Directly include the tool
+        Use this tool to help users search for apartments.
+        """,
+        tools=[fetch_properties_tool],
     )
 
     print("Agent initialized successfully.")
@@ -48,14 +50,26 @@ async def async_main(user_query):
         async for event in events:
             if event.content and event.content.parts:
                 part = event.content.parts[0]
+
                 if part.function_call:
                     print(f"\n🔧 Calling tool: {part.function_call.name} with arguments {part.function_call.args}")
+
                 elif part.function_response:
                     print("\n📦 Tool response:")
-                    for item in part.function_response.response["result"]["content"]:
-                        print(f"- {item.text}")
+                    response_data = part.function_response.response
+                    properties = response_data.get("result", [])
+
+                    if isinstance(properties, list):
+                        for item in properties:
+                            print(f"- 🏢 Type: {item.get('type', 'N/A')}, "
+                                  f"📍 Location: {item.get('location', 'N/A')}, "
+                                  f"💰 Price: {item.get('price', 'N/A')} AED, "
+                                  f"📐 Size: {round(item.get('size', 0), 2)} sq.ft.")
+                    else:
+                        print(f"- Unexpected tool response format: {response_data}")
                 else:
                     print("🤖", part.text)
+
     except Exception as e:
         print(f"❌ Error: {e}")
 
@@ -68,5 +82,5 @@ if __name__ == "__main__":
     user_query = input("Enter your query: ")
     model_choice = input("Choose model (flash/pro): ").strip()
     os.environ["GEMINI_MODEL"] = f"gemini-2.0-{model_choice}"
-    
+
     asyncio.run(async_main(user_query))
