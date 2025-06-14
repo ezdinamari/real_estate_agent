@@ -1,5 +1,3 @@
-# real_estate_tool.py
-
 import os
 import requests
 from typing import Optional, List, Dict
@@ -12,7 +10,17 @@ PROPERTY_TYPE_IDS = {
     "penthouse": "19",
     "office": "7",
     "shop": "6",
-    "plot": "9"
+    "warehouse": "8",
+    "labour camp": "12",
+    "bulk unit": "18",
+    "floor": "21",
+    "building": "14",
+    "factory": "11",
+    "industrial land": "22",
+    "mixed use land": "23",
+    "showroom": "10",
+    "land": "9",  # general land
+    "other commercial": "24"  # optional catch-all
 }
 
 # For general "Dubai" fallback to popular villa areas
@@ -40,12 +48,11 @@ location_map = {
 }
 
 
-def fetch_properties(location: str, purpose: str, budget: Optional[float] = None, property_type: Optional[str] = None) -> List[Dict]:
+def fetch_properties(location: str, purpose: str, budget: Optional[float] = None, category: Optional[str] = None) -> List[Dict]:
     """
-    Search for properties in Dubai given a location, purpose ('rent' or 'sale'), optional budget, and optional property type.
-    Returns a list of dicts, each with keys: type, purpose, price, location, size (sqm).
+    Search for properties in Dubai given a location, purpose ('rent' or 'sale'), and optional budget in AED.
+    Returns a list of dicts, each with keys: type, purpose, price, location, size (area in sqm), url.
     """
-
     if not location or not purpose:
         return [{"error": "Missing required parameters: location and purpose"}]
 
@@ -56,70 +63,58 @@ def fetch_properties(location: str, purpose: str, budget: Optional[float] = None
     }
 
     loc_key = location.strip().lower()
-    location_id = location_map.get(loc_key, "5002")
+    location_id = location_map.get(loc_key, "5002")  # default to Dubai
 
     params = {
         "locationExternalIDs": location_id,
         "purpose": f"for-{purpose}",
-        "hitsPerPage": "20"
+        "hitsPerPage": "20",
     }
+
+    if category:
+        cat_id = PROPERTY_TYPE_IDS.get(category.lower())
+        if cat_id:
+            params["categoryExternalID"] = cat_id
 
     if budget is not None:
         try:
             params["maxPrice"] = int(budget)
-        except ValueError:
-            pass
+        except Exception:
+            pass  # Ignore invalid budget input
 
-    if property_type:
-        category_id = PROPERTY_TYPE_IDS.get(property_type.strip().lower())
-        if category_id:
-            params["categoryExternalID"] = category_id
-
-    # Make initial API request
     try:
-        response = requests.get(url, headers=headers, params=params, timeout=10)
-        data = response.json()
+        resp = requests.get(url, headers=headers, params=params, timeout=10)
+        data = resp.json()
         listings = data.get("hits", [])
     except Exception as e:
         return [{"error": f"API request failed: {e}"}]
 
-    # If no results and searching in generic "Dubai" — try popular villa areas
-    if not listings and location.lower() == "dubai" and property_type and property_type.lower() == "villa":
-        for area in DUBAI_VILLA_NEIGHBORHOODS:
-            fallback_params = params.copy()
-            fallback_params["locationExternalIDs"] = location_map.get(area.lower(), "5002")
-            try:
-                response = requests.get(url, headers=headers, params=fallback_params, timeout=10)
-                data = response.json()
-                listings = data.get("hits", [])
-                if listings:
-                    break
-            except:
-                continue
-
     results = []
     for item in listings:
-        # extract type
         category = item.get("category", [])
         type_name = category[0].get("name", "property") if category else "property"
 
-        # extract location name (last in location list)
         loc_list = item.get("location", [])
         loc_name = loc_list[-1].get("name", "") if loc_list else ""
 
-        # area
-        raw_area = item.get("area") or item.get("size")
+        raw_area = item.get("area") or item.get("size") or 0
         try:
-            size_sqm = float(raw_area) if raw_area is not None else 0.0
+            size_sqm = float(raw_area)
         except:
             size_sqm = 0.0
+
+        cover = item.get("coverPhoto", {}).get("url", "")
+
+        external_id = item.get("externalID")
+        bayut_url = f"https://www.bayut.com/property/details-{external_id}.html" if external_id else ""
 
         results.append({
             "type": type_name,
             "purpose": purpose,
             "price": item.get("price"),
             "location": loc_name,
-            "size": size_sqm
+            "size": size_sqm,
+            "url": bayut_url
         })
 
     if not results:
