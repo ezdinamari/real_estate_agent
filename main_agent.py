@@ -64,7 +64,7 @@ async def async_main(user_query):
                             print(f"- 🏢 Type: {item.get('type', 'N/A')}, "
                                   f"📍 Location: {item.get('location', 'N/A')}, "
                                   f"💰 Price: {item.get('price', 'N/A')} AED, "
-                                  f"📐 Size: {round(item.get('size', 0), 2)} sq.ft.")
+                                  f"📐 Size: {round(item.get('size', 0), 2)} sq.m.")
                     else:
                         print(f"- Unexpected tool response format: {response_data}")
                 else:
