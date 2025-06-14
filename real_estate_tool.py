@@ -25,7 +25,7 @@ def fetch_properties(location: str, purpose: str, budget: Optional[float] = None
     params = {
         "locationExternalIDs": location_id,
         "purpose": f"for-{purpose}",
-        "hitsPerPage": "10",
+        #"hitsPerPage": "10",
     }
 
     if budget:
