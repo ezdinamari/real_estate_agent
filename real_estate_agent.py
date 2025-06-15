@@ -90,52 +90,46 @@ def extract_purpose(query: str) -> str:
 
 def extract_property_type(query: str) -> Optional[str]:
     q = query.lower()
-
-    if "villa" in q or "villas" in q:
-        return "villa"
-    elif "apartment" in q or "flat" in q:
-        return "apartment"
-    elif "townhouse" in q:
-        return "townhouse"
-    elif "land" in q and "industrial" in q:
-        return "industrial land"
-    elif "land" in q and "mixed use" in q:
-        return "mixed use land"
-    elif "land" in q:
-        return "land"
-    elif "floor" in q:
-        return "floor"
-    elif "building" in q:
-        return "building"
-    elif "penthouse" in q:
-        return "penthouse"
-    elif "office" in q:
-        return "office"
-    elif "warehouse" in q:
-        return "warehouse"
-    elif "shop" in q:
-        return "shop"
-    elif "labour camp" in q:
-        return "labour camp"
-    elif "bulk unit" in q:
-        return "bulk unit"
-    elif "factory" in q:
-        return "factory"
-    elif "showroom" in q:
-        return "showroom"
-    elif "other commercial" in q:
-        return "other commercial"
+    if "villa" in q: return "villa"
+    elif "apartment" in q or "flat" in q: return "apartment"
+    elif "townhouse" in q: return "townhouse"
+    elif "land" in q and "industrial" in q: return "industrial land"
+    elif "land" in q and "mixed use" in q: return "mixed use land"
+    elif "land" in q: return "land"
+    elif "floor" in q: return "floor"
+    elif "building" in q: return "building"
+    elif "penthouse" in q: return "penthouse"
+    elif "office" in q: return "office"
+    elif "warehouse" in q: return "warehouse"
+    elif "shop" in q: return "shop"
+    elif "labour camp" in q: return "labour camp"
+    elif "bulk unit" in q: return "bulk unit"
+    elif "factory" in q: return "factory"
+    elif "showroom" in q: return "showroom"
+    elif "other commercial" in q: return "other commercial"
     return None
 
+def extract_rooms(query: str) -> Optional[int]:
+    match = re.search(r'(\d+)\s*(?:bed|bedroom|bedrooms)', query, re.IGNORECASE)
+    return int(match.group(1)) if match else None
+
+def extract_baths(query: str) -> Optional[int]:
+    match = re.search(r'(\d+)\s*(?:bath|bathroom|bathrooms)', query, re.IGNORECASE)
+    return int(match.group(1)) if match else None
+
+def extract_lat_lon(query: str) -> Tuple[Optional[float], Optional[float]]:
+    lat_match = re.search(r"lat(?:itude)?\s*[:=]?\s*(-?\d+(?:\.\d+)?)", query, re.IGNORECASE)
+    lon_match = re.search(r"lon(?:gitude)?\s*[:=]?\s*(-?\d+(?:\.\d+)?)", query, re.IGNORECASE)
+    lat = float(lat_match.group(1)) if lat_match else None
+    lon = float(lon_match.group(1)) if lon_match else None
+    return lat, lon
+
 # ---------------------
-# 3. Format result
+# 3. Formatter
 def format_property(item: Dict, neighborhood: str) -> str:
     price = item.get("price")
     size_sqm = item.get("size", 0) or 0.0
-    try:
-        size_sqft = round(size_sqm * 10.7639, 2)
-    except:
-        size_sqft = None
+    size_sqft = round(size_sqm * 10.7639, 2) if size_sqm else None
 
     type_name = item.get("type", "Property")
     loc_name = item.get("location", neighborhood.title())
@@ -150,15 +144,15 @@ def format_property(item: Dict, neighborhood: str) -> str:
 # ---------------------
 # 4. LLM summarization
 async def summarize_listings(user_query: str, listings: List[Tuple[str, Dict]]) -> None:
-    system_prompt = """
+    system_prompt = f"""
 You are a real estate assistant. A user asked:
-\"\"\"{}\"\"\"
+\"\"\"{user_query}\"\"\"
 Below is a JSON array of property listings (with neighborhood). Please:
 - Summarize the key insights (e.g., price range, best deals).
 - Mention neighborhood context and nearby schools.
 - If no listings, suggest adjusting budget or neighborhood.
 Respond in a friendly conversational style.
-""".strip().format(user_query)
+""".strip()
 
     simple_list = []
     for nb, prop in listings:
@@ -168,6 +162,8 @@ Respond in a friendly conversational style.
             "location": prop.get("location"),
             "price": prop.get("price"),
             "size_sqm": prop.get("size"),
+            "rooms": prop.get("rooms", None),
+            "baths": prop.get("baths", None),
         }
         simple_list.append(entry)
 
@@ -197,12 +193,15 @@ Respond in a friendly conversational style.
                 print(part.text)
 
 # ---------------------
-# 5. Main agent entry
+# 5. Main Agent Function
 def run_real_estate_agent(user_query: str):
     neighborhood = extract_neighborhood(user_query)
     budget = extract_budget(user_query)
     purpose = extract_purpose(user_query)
     property_type = extract_property_type(user_query)
+    rooms = extract_rooms(user_query)
+    baths = extract_baths(user_query)
+    lat, lon = extract_lat_lon(user_query)
 
     if neighborhood:
         neighborhoods_to_search = [neighborhood]
@@ -213,11 +212,25 @@ def run_real_estate_agent(user_query: str):
 
     print(f"💰 Budget: {'None' if budget is None else f'Under {budget:,.0f} AED'}")
     print(f"🎯 Purpose: {purpose.title()}")
-    print(f"🏗️ Property Type: {property_type or 'Any'}\n")
+    print(f"🏗️ Property Type: {property_type or 'Any'}")
+    print(f"🛏️ Bedrooms: {rooms or 'Any'}")
+    print(f"🛁 Bathrooms: {baths or 'Any'}")
+    if lat is not None and lon is not None:
+        print(f"📌 Location Coordinates: (lat: {lat}, lon: {lon})")
+    print()
 
     all_results: List[Tuple[str, Dict]] = []
     for nb in neighborhoods_to_search:
-        props = fetch_properties(location=nb, purpose=purpose, budget=budget, category=property_type)
+        props = fetch_properties(
+            location=nb,
+            purpose=purpose,
+            budget=budget,
+            category=property_type,
+            rooms=rooms,
+            baths=baths,
+            lat=lat,
+            lon=lon
+        )
         if isinstance(props, list) and props:
             for prop in props:
                 all_results.append((nb, prop))
